@@ -1,3 +1,7 @@
+
+
+# pyright: reportMissingTypeStubs=false
+
 from controller import update_controller
 from sim_api import fetch_simulator_data
 
@@ -6,7 +10,7 @@ from layout.All_Data_Tab import render_all_data_tab
 from config import DEBUG_MODE
 from dash import Dash, dcc, html, Output, Input, State, ctx, no_update
 import dash_bootstrap_components as dbc
-import requests
+
 
 from layout.main_tab import render_main_tab
 from layout.All_Data_Tab import render_all_data_tab

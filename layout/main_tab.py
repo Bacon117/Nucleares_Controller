@@ -1,11 +1,19 @@
 # Filename: main_tab.py
-
+# pyright: reportGeneralTypeIssues=false
+# pyright: reportOptionalMemberAccess=false
+# pyright: reportOptionalSubscript=false
+# pyright: reportOptionalCall=false
+# pyright: reportUnknownParameterType=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownMemberType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportMissingTypeStubs=false
 from dash import html, dcc
 import dash_bootstrap_components as dbc
 import dash_daq as daq
 import plotly.graph_objs as go
 import pandas as pd
-import math
+
 from config import DEBUG_MODE
 
 
@@ -40,7 +48,7 @@ condenser_controller_state_labels = {
 }
 
 # === UI Configuration ===
-UI_CONFIG = {
+UI_CONFIG = { # type: ignore
     "col_widths": {"chart": 6, "gauge": 3, "table": 3},
     "colors": {
         "bg": "#2a2a2a",
@@ -65,12 +73,12 @@ UI_CONFIG = {
 data_history = pd.DataFrame(columns=["ingame_minutes", "CORE_TEMP", "COOLANT_SEC_0_VOLUME", "COOLANT_SEC_1_VOLUME", "COOLANT_SEC_2_VOLUME"])
 last_ingame_time = None
 
-def get_controller_state_as_table(state):
-    return html.Table([
-        html.Thead(html.Tr([html.Th("Key"), html.Th("Value")]))
-    ] + [
-        html.Tr([html.Td(str(k)), html.Td(str(v))]) for k, v in state.items()
-    ], style={"fontSize": "12px", "color": "white", "borderCollapse": "collapse", "border": "1px solid #888"})
+#def get_controller_state_as_table(state: int):
+#    return html.Table([
+#        html.Thead(html.Tr([html.Th("Key"), html.Th("Value")]))
+#    ] + [
+#        html.Tr([html.Td(str(k)), html.Td(str(v))]) for k, v in state.items()
+#    ], style={"fontSize": "12px", "color": "white", "borderCollapse": "collapse", "border": "1px solid #888"})
 
 def make_row(label, value, background_color, text_color="lightgray"):
     return html.Tr([

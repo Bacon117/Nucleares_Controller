@@ -1,11 +1,17 @@
-from dash import html, dcc
-import dash_bootstrap_components as dbc
-import plotly.graph_objs as go
+# pyright: reportMissingTypeStubs=false
+# pyright: reportUnknownMemberType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportGeneralTypeIssues=false
+
+from dash import dcc
+import dash_bootstrap_components as dbc # type: ignore
+import plotly.graph_objs as go # type: ignore
 import pandas as pd
+import typing as t
 
 pressure_history = pd.DataFrame(columns=["ingame_minutes", "CORE_PRESSURE"])
 
-def render_pressurizer_tab(data):
+def render_pressurizer_tab(data: t.Dict[t.Any, t.Any]) -> dbc.Row:
     global pressure_history
 
     core_pressure = data.get("CORE_PRESSURE", 0)
@@ -16,13 +22,13 @@ def render_pressurizer_tab(data):
     # --- History ---
     new_row = pd.DataFrame({"ingame_minutes": [ingame_time], "CORE_PRESSURE": [core_pressure]})
     pressure_history = pd.concat([pressure_history, new_row], ignore_index=True)
-    pressure_history = pressure_history[pressure_history["ingame_minutes"] >= ingame_time - 60]
+    pressure_history = pressure_history[pressure_history["ingame_minutes"] >= ingame_time - 60] # type: ignore
     pressure_history["Minutes Ago"] = ingame_time - pressure_history["ingame_minutes"]
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=pressure_history["Minutes Ago"],
-        y=pressure_history["CORE_PRESSURE"],
+    fig: go.Figure = go.Figure() # type: ignore
+    fig.add_trace(go.Scatter( # type: ignore
+        x=pressure_history["Minutes Ago"], # type: ignore
+        y=pressure_history["CORE_PRESSURE"], # type: ignore
         mode="lines",
         line=dict(color="lightblue", width=2),
         name="Core Pressure"

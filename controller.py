@@ -1,8 +1,6 @@
-from config import DEBUG_MODE
 from sim_api import set_game_variable
-
-
 from controllers.SecondaryLoop import update_secondary_loop_controllers
+from typing import Any, Dict
 
 # Shared registry to track UI variable displays
 #_display_registry = {}
@@ -37,14 +35,14 @@ COREACTIVE = 0x000001
 #def get_display_components(tab_name):
 #    return list(_display_registry.get(tab_name, {}).values())
 
-def update_controller(data):
+def update_controller(data: Dict[str, Any]) -> None:
     print("Update Controller")
-    data.setdefault("rod_controller_enable",1)
+    data.setdefault("rod_controller_enable", 1)
     data["secondary_pump_controller0_enable"] = 0
     data["secondary_pump_controller1_enable"] = 1
     data["secondary_pump_controller2_enable"] = 1
     data["boron_controller_enable"] = 1
-    data["condenser_controller_enable"]=1
+    data["condenser_controller_enable"] = 1
     data["rod_equilize"] = 1
 
     update_core_temp_and_reactivity(data)
@@ -54,47 +52,42 @@ def update_controller(data):
     update_condenser_controller(data)
 
     try:
-        data["MSCV loop2 DeltaP"] = data.get("COOLANT_SEC_1_PRESSURE") - data.get("STEAM_TURBINE_1_PRESSURE")
-    except:
+        data["MSCV loop2 DeltaP"] = (data.get("COOLANT_SEC_1_PRESSURE", 0) or 0) - (data.get("STEAM_TURBINE_1_PRESSURE", 0) or 0)
+    except Exception:
         data["MSCV loop2 DeltaP"] = -1
 
     try:
-        valve_percent = data.get("MSCV_2_OPENING_ACTUAL",0)
+        valve_percent = data.get("MSCV_2_OPENING_ACTUAL", 0) or 0
         expected_rate = 10 * valve_percent
-        sg_mass_out = data.get("STEAM_GEN_2_OUTLET",0)
-        T = data.get("STEAM_TURBINE_2_TEMPERATURE",0)
-        h_in = 2504+1.89*T
-        h_out = h_in-590
-        Demand_MW = data.get("POWER_DEMAND_MW",0)
-        if h_in-h_out > 0.001:
-            mass_req = Demand_MW*(300/179)
+        sg_mass_out = data.get("STEAM_GEN_2_OUTLET", 0) or 0
+        T = data.get("STEAM_TURBINE_2_TEMPERATURE", 0) or 0
+        h_in = 2504 + 1.89 * T
+        h_out = h_in - 590
+        Demand_MW = data.get("POWER_DEMAND_MW", 0) or 0
+        if h_in - h_out > 0.001:
+            mass_req = Demand_MW * (300 / 179)
         else:
             mass_req = 0
-
+        throttle_val = -1
         if expected_rate > 0.1:
-            throttle_val = 1-(sg_mass_out/expected_rate)
-
-
+            throttle_val = 1 - (sg_mass_out / expected_rate)
         data["z_Mass_Required"] = mass_req
         data["z_Loop 3 Mass Rate Expected"] = expected_rate
         data["z_Loop 3 MSCV Throttle"] = throttle_val
-    except:
+    except Exception:
         data["z_Loop 3 MSCV Throttle"] = -1
 
-
-    data["controller_last_update"] = data.get("TIME_STAMP") or 0
+    data["controller_last_update"] = data.get("TIME_STAMP", 0) or 0
     return
 
 # === Extracted Controllers ===
 
-def update_core_temp_and_reactivity(data):
-    ingame_time = data.get("TIME_STAMP") or 0
-    last_update = data.get("controller_last_update") or ingame_time
-    core_temp = data.get("CORE_TEMP") or 0
-    core_criticality = float(data.get("CORE_STATE_CRITICALITY")) or 0
+def update_core_temp_and_reactivity(data: Dict[str, Any]) -> None:
+    core_temp = data.get("CORE_TEMP", 0) or 0
+    core_criticality = float(data.get("CORE_STATE_CRITICALITY", 0) or 0)
 
     core_temp_target = 350
-    core_temp_controller_gain = 1/20
+    core_temp_controller_gain = 1 / 20
     core_temp_controller_upperLim = 1
     core_temp_controller_lowerLim = -1
     core_temp_target_deadband = 1
@@ -130,17 +123,16 @@ def update_core_temp_and_reactivity(data):
         "reactivity_control_effort": reactivity_control_effort
     })
 
-def update_rod_controller(data):
-    ingame_time = data.get("TIME_STAMP") or 0
-    last_update = data.get("controller_last_update") or ingame_time
-    delta_minutes = ingame_time - last_update
-    reactivity_control_effort = data.get("reactivity_control_effort") or 0
-    rod_actuals = []
+def update_rod_controller(data: Dict[str, Any]) -> None:
+    ingame_time = data.get("TIME_STAMP", 0) or 0
+    delta_minutes = ingame_time - (data.get("controller_last_update", ingame_time) or ingame_time)
+    reactivity_control_effort = data.get("reactivity_control_effort", 0) or 0
+    rod_actuals: list[float] = []
 
-    if data.get("rod_controller_enable"):
+    if data.get("rod_controller_enable", 0):
         for i in range(9):
             try:
-                actual = data.get(f"ROD_BANK_POS_{i}_ACTUAL")
+                actual = data.get(f"ROD_BANK_POS_{i}_ACTUAL", 0)
                 if isinstance(actual, float):
                     rod_actuals.append(actual)
                     commanded = round(actual + reactivity_control_effort * delta_minutes, 2)
@@ -153,71 +145,60 @@ def update_rod_controller(data):
                 import traceback
                 print("[ERROR] Exception setting rod controller command")
                 traceback.print_exc()
-        if data.get("rod_equilize",0):
-           print("poop")
-
-def secondary_state_transition(state_transition_variable):
-    if not(state_transition_variable & SEC_ENABLE)    : controller_state = "init_off"
-    elif state_transition_variable & SEC_MINPUMP      : controller_state = "pump_minimum"
-    elif state_transition_variable & SEC_HIGHVOLPANIC : controller_state = "highvol_panic"
-    elif state_transition_variable & SEC_LOWVOLPANIC  : controller_state = "lowvol_panic"
-    elif state_transition_variable & SEC_LOWVOL_HI    : controller_state = "increase_fast"
-    elif state_transition_variable & SEC_LOWVOL_LO    : controller_state = "increase_slow"
-    elif state_transition_variable & SEC_HIGHVOL_LO   : controller_state = "decrease_slow"
-    elif state_transition_variable & SEC_HIGHVOL_HI   : controller_state = "decrease_fast"
+        if data.get("rod_equilize", 0):
+            print("poop")
 
 
-
-
-    else                                              : controller_state = "steady"
-    return controller_state
-
-
-
-def boron_state_transition(state_transition_variable):
-    if not(state_transition_variable & ENABLE):     state = 0
-    elif not(state_transition_variable & COREACTIVE):   state = 6
-    elif state_transition_variable & PPMLIM:            state = 4
-    elif state_transition_variable & NOBORON:            state = 5
-    elif state_transition_variable & RODHI:             state = 2
-    elif state_transition_variable & RODLO:             state = 3
-    else:                                               state = 1
+def boron_state_transition(state_transition_variable: int) -> int:
+    if not (state_transition_variable & ENABLE):
+        state = 0
+    elif not (state_transition_variable & COREACTIVE):
+        state = 6
+    elif state_transition_variable & PPMLIM:
+        state = 4
+    elif state_transition_variable & NOBORON:
+        state = 5
+    elif state_transition_variable & RODHI:
+        state = 2
+    elif state_transition_variable & RODLO:
+        state = 3
+    else:
+        state = 1
     return state
 
-def update_boron_dosing_controller(data):
-    if DEBUG_MODE: print("")
+def update_boron_dosing_controller(data: Dict[str, Any]) -> None:
+    print("")
     print("Starting Boron dosing controller")
-    ingame_time = data.get("TIME_STAMP") or 0
+    ingame_time = data.get("TIME_STAMP", 0) or 0
     boron_update_InGameMinutes = 1
     rod_upper_limit = 60
     rod_lower_limit = 50
     boron_rate_increase = 10
     boron_filter_speed = 10
     boron_PPM_limit = 3000
-    boron_limit_reEnable_multiplier = 0.8
 
-    boron_controller_enable = data.get("boron_controller_enable") or 0
-    state = data.get("boron_controller_state") or 0
-    RODS_POS_ACTUAL = data.get("RODS_POS_ACTUAL") or -1
-    boron_ppm = data.get("CHEM_BORON_PPM") or -1
-    last_boron_update_time = data.get("last_boron_update_time") or 0
-    core_state = data.get("CORE_STATE",0)
-
-
-
-
+    boron_controller_enable = data.get("boron_controller_enable", 0) or 0
+    state = data.get("boron_controller_state", 0) or 0
+    RODS_POS_ACTUAL = data.get("RODS_POS_ACTUAL", -1) or -1
+    boron_ppm = data.get("CHEM_BORON_PPM", -1) or -1
+    last_boron_update_time = data.get("last_boron_update_time", 0) or 0
+    core_state = data.get("CORE_STATE", 0)
 
     state_transition_variable = 0
-    if boron_controller_enable:           state_transition_variable |= ENABLE
-    if RODS_POS_ACTUAL <=0:               state_transition_variable &= ~ENABLE
-    if RODS_POS_ACTUAL > rod_upper_limit: state_transition_variable |= RODHI
-    if RODS_POS_ACTUAL < rod_lower_limit: state_transition_variable |= RODLO
-    if boron_ppm>boron_PPM_limit:         state_transition_variable |= PPMLIM
-    if boron_ppm<=0.01:                   state_transition_variable |= NOBORON
-    if core_state == "REACTIVO":          state_transition_variable |= COREACTIVE
-
-
-
+    if boron_controller_enable:
+        state_transition_variable |= ENABLE
+    if RODS_POS_ACTUAL <= 0:
+        state_transition_variable &= ~ENABLE
+    if RODS_POS_ACTUAL > rod_upper_limit:
+        state_transition_variable |= RODHI
+    if RODS_POS_ACTUAL < rod_lower_limit:
+        state_transition_variable |= RODLO
+    if boron_ppm > boron_PPM_limit:
+        state_transition_variable |= PPMLIM
+    if boron_ppm <= 0.01:
+        state_transition_variable |= NOBORON
+    if core_state == "REACTIVO":
+        state_transition_variable |= COREACTIVE
 
     print(f"Ingame Time {ingame_time}")
     print(f"Last Boron Update Time {last_boron_update_time}")
@@ -226,49 +207,47 @@ def update_boron_dosing_controller(data):
         return
     data["last_boron_update_time"] = ingame_time
     print(f"🟡State: {state}")
-    #print(f"{state_transition_variable:024b}")
     print(f"Transition Variable: {state_transition_variable:06b}")
     match state:
-        case 0: #Initialize/OFF
+        case 0:  # Initialize/OFF
             print("State 0")
-            if state_transition_variable & ENABLE:  state = 1
-            else:                                       state = 0
-
-        case 1: #Hold
+            if state_transition_variable & ENABLE:
+                state = 1
+            else:
+                state = 0
+        case 1:  # Hold
             set_game_variable("CHEM_BORON_DOSAGE_ORDERED_RATE", 0)
             set_game_variable("CHEM_BORON_FILTER_ORDERED_SPEED", 0)
             state = boron_state_transition(state_transition_variable)
-
-
-        case 2:  #increase boron
+        case 2:  # increase boron
             set_game_variable("CHEM_BORON_DOSAGE_ORDERED_RATE", boron_rate_increase)
             set_game_variable("CHEM_BORON_FILTER_ORDERED_SPEED", 0)
             state = boron_state_transition(state_transition_variable)
-        case 3:  #decrease boron
+        case 3:  # decrease boron
             set_game_variable("CHEM_BORON_DOSAGE_ORDERED_RATE", 0)
             set_game_variable("CHEM_BORON_FILTER_ORDERED_SPEED", boron_filter_speed)
             state = boron_state_transition(state_transition_variable)
-        case 4:  #Boron PPM Lim
+        case 4:  # Boron PPM Lim
             set_game_variable("CHEM_BORON_DOSAGE_ORDERED_RATE", 0)
             set_game_variable("CHEM_BORON_FILTER_ORDERED_SPEED", 0)
             state = boron_state_transition(state_transition_variable)
-        case 5: #no boron
+        case 5:  # no boron
             state = boron_state_transition(state_transition_variable)
-        case 6: #core not reactive
+        case 6:  # core not reactive
             state = boron_state_transition(state_transition_variable)
+        case _:
+            pass
     data["boron_controller_state"] = state
 
-
-
-def update_condenser_controller(data):
+def update_condenser_controller(data: Dict[str, Any]) -> None:
     print("Start Update Condenser")
-    ingame_time = data.get("TIME_STAMP") or 0
-    last_update = data.get("controller_last_update") or ingame_time
-    condenser_temp = data.get("CONDENSER_TEMPERATURE")
-    current_speed = data.get("CONDENSER_CIRCULATION_PUMP_SPEED") or 0
+    ingame_time = data.get("TIME_STAMP", 0) or 0
+    
+    condenser_temp = data.get("CONDENSER_TEMPERATURE", 0)
+    current_speed = data.get("CONDENSER_CIRCULATION_PUMP_SPEED", 0) or 0
     state = data.get("condenser_controller_state", 0)
-    enable = data.get("condenser_controller_enable",0)
-    last_decrease_time = data.get("last_decrease_time") or 0
+    enable = data.get("condenser_controller_enable", 0)
+    last_decrease_time = data.get("last_decrease_time", 0) or 0
 
     condenser_temp_target = 103
     condenser_temp_deadband = 3
@@ -281,89 +260,110 @@ def update_condenser_controller(data):
             data["condenser_controller_state"] = -1
             print("No condenser temp")
             return
-        #state transition variable
-        # bit 0 = condenser temp over target + deadband
-        # bit 1 = condenser temp lower than target - deadband
-        # bit 2 = pump speed at max
-        # bit 3 = pump at min speed
-        # bit 4 = condenser above critical
+        # state transition variable
         TEMP_HIGH = 0x10000
-        TEMP_LOW  = 0x01000
-        PUMP_MAX  = 0x00100
-        PUMP_MIN  = 0x00010
+        TEMP_LOW = 0x01000
+        PUMP_MAX = 0x00100
+        PUMP_MIN = 0x00010
         CRIT_TEMP = 0x00001
 
         state_transition = 0
-        if condenser_temp > condenser_temp_target + condenser_temp_deadband: state_transition |= TEMP_HIGH
-        if condenser_temp < condenser_temp_target - condenser_temp_deadband: state_transition |= TEMP_LOW
-        if int(current_speed) == int(condenser_pump_max_speed): state_transition              |= PUMP_MAX
-        if int(current_speed) == int(condenser_pump_min_speed): state_transition              |= PUMP_MIN
-        if condenser_temp >= condenser_temp_critical: state_transition                        |= CRIT_TEMP
+        if condenser_temp > condenser_temp_target + condenser_temp_deadband:
+            state_transition |= TEMP_HIGH
+        if condenser_temp < condenser_temp_target - condenser_temp_deadband:
+            state_transition |= TEMP_LOW
+        if int(current_speed) == int(condenser_pump_max_speed):
+            state_transition |= PUMP_MAX
+        if int(current_speed) == int(condenser_pump_min_speed):
+            state_transition |= PUMP_MIN
+        if condenser_temp >= condenser_temp_critical:
+            state_transition |= CRIT_TEMP
 
         print("Running condenser state calcs")
         print(f"State: {state}")
         match state:
             case 0:  # Initialize
                 print("State 0")
-
                 state = 1
             case 1:  # Hold
                 print("State 1")
-
-                if state_transition & CRIT_TEMP: state = 6
-                elif state_transition & PUMP_MAX: state = 4
-                elif state_transition & PUMP_MIN: state = 5
-                elif state_transition & TEMP_HIGH: state = 2
-                elif state_transition & TEMP_LOW: state = 3
-                else: state = 1
+                if state_transition & CRIT_TEMP:
+                    state = 6
+                elif state_transition & PUMP_MAX:
+                    state = 4
+                elif state_transition & PUMP_MIN:
+                    state = 5
+                elif state_transition & TEMP_HIGH:
+                    state = 2
+                elif state_transition & TEMP_LOW:
+                    state = 3
+                else:
+                    state = 1
             case 2:  # Increase
                 print("State 2")
-                new_speed = max(min(current_speed +1,condenser_pump_max_speed),condenser_pump_min_speed)
+                new_speed = max(min(current_speed + 1, condenser_pump_max_speed), condenser_pump_min_speed)
                 set_game_variable("CONDENSER_CIRCULATION_PUMP_ORDERED_SPEED", new_speed)
-
-                if state_transition & CRIT_TEMP: state = 6
-                elif state_transition & PUMP_MAX: state = 4
-                elif state_transition & PUMP_MIN: state = 2
-                elif state_transition & TEMP_HIGH: state = 2
-                elif state_transition & TEMP_LOW: state = 3
-                else: state = 1
+                if state_transition & CRIT_TEMP:
+                    state = 6
+                elif state_transition & PUMP_MAX:
+                    state = 4
+                elif state_transition & PUMP_MIN:
+                    state = 2
+                elif state_transition & TEMP_HIGH:
+                    state = 2
+                elif state_transition & TEMP_LOW:
+                    state = 3
+                else:
+                    state = 1
             case 3:  # Decrease
                 print("State 3")
-                new_speed = max(min(current_speed - 1,condenser_pump_max_speed),condenser_pump_min_speed)
+                new_speed = max(min(current_speed - 1, condenser_pump_max_speed), condenser_pump_min_speed)
                 if int(ingame_time - last_decrease_time) > 2:
-                    data["last_decrease_time"]=ingame_time
+                    data["last_decrease_time"] = ingame_time
                     set_game_variable("CONDENSER_CIRCULATION_PUMP_ORDERED_SPEED", new_speed)
-                if state_transition & CRIT_TEMP: state = 6
-                elif state_transition & PUMP_MAX: state = 3
-                elif state_transition & PUMP_MIN: state = 5
-                elif state_transition & TEMP_HIGH: state = 2
-                elif state_transition & TEMP_LOW: state = 3
-                else: state = 1
+                if state_transition & CRIT_TEMP:
+                    state = 6
+                elif state_transition & PUMP_MAX:
+                    state = 3
+                elif state_transition & PUMP_MIN:
+                    state = 5
+                elif state_transition & TEMP_HIGH:
+                    state = 2
+                elif state_transition & TEMP_LOW:
+                    state = 3
+                else:
+                    state = 1
             case 4:  # Max pump
                 print("State 4")
-                # Pump is at max speed, this is really just a state for display
-                if state_transition & CRIT_TEMP: state = 6
-                elif not(state_transition & PUMP_MAX): state = 1
-                elif state_transition & TEMP_LOW: state = 3
-                else: state = 4
-
+                if state_transition & CRIT_TEMP:
+                    state = 6
+                elif not (state_transition & PUMP_MAX):
+                    state = 1
+                elif state_transition & TEMP_LOW:
+                    state = 3
+                else:
+                    state = 4
             case 5:  # Minimum Pump Speed
                 set_game_variable("CONDENSER_CIRCULATION_PUMP_ORDERED_SPEED", condenser_pump_min_speed)
                 print("state 5")
-                # Pump is at stopped, this is really just a state for display
-                if state_transition & CRIT_TEMP: state = 6
-                elif not (state_transition & PUMP_MIN): state = 1
-                elif state_transition & TEMP_HIGH: state = 2
-                else: state = 5
+                if state_transition & CRIT_TEMP:
+                    state = 6
+                elif not (state_transition & PUMP_MIN):
+                    state = 1
+                elif state_transition & TEMP_HIGH:
+                    state = 2
+                else:
+                    state = 5
             case 6:  # Panic
-                print ("State 6")
+                print("State 6")
                 set_game_variable("CONDENSER_CIRCULATION_PUMP_ORDERED_SPEED", condenser_pump_max_speed)
-                if not(state_transition & CRIT_TEMP): state = 1
-                else: state = 6
+                if not (state_transition & CRIT_TEMP):
+                    state = 1
+                else:
+                    state = 6
             case _:
-                print ("State not recognized")
+                print("State not recognized")
                 state = 0
-
         data["condenser_controller_state"] = state
     else:
         data["condenser_controller_state"] = 100
@@ -661,4 +661,3 @@ def update_condenser_controller(data):
 #           case _:
 #               controller_state = "init_off"
 #       data[loop_state_key] = controller_state
-#
